@@ -6,6 +6,46 @@
 #include "gtk/gtk.h"
 #include <string.h>
 
+static void update_label(GDBusProxy* proxy, GtkWidget* label)
+{
+  char* metadata = get_track_metadata(proxy);
+  gtk_label_set_text(GTK_LABEL(label), metadata);
+  g_free(metadata);
+}
+
+static void update_button_icon(GtkWidget* button, const char* icon_name)
+{
+  GtkWidget* new_image = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
+  gtk_button_set_image(GTK_BUTTON(button), new_image);
+}
+
+static void on_spotify_properties_changed(GDBusProxy* proxy, GVariant* changed_properties, char** invalidated_properties, gpointer user_data)
+{
+  GtkWidget* window = GTK_WIDGET(user_data);
+  struct WidgetData* widgets = (struct WidgetData*)g_object_get_data(G_OBJECT(window), "widget_data_instance");
+  if (widgets == NULL) return;
+  GVariant* metadata_variant = g_variant_lookup_value(changed_properties, "Metadata", G_VARIANT_TYPE("a{sv}"));
+  GVariant* playback_variant = g_variant_lookup_value(changed_properties, "PlaybackStatus", G_VARIANT_TYPE_STRING);
+
+  if (metadata_variant != NULL)
+  {
+    //metadata has changed, so update the label
+    update_label(proxy, widgets->label);
+  }
+  if (playback_variant != NULL)
+  {
+    //PlaybackStatus has changed, update the button icon
+    const char* playback_status = g_variant_get_string(playback_variant, NULL);
+    if (!strcmp(playback_status, "Playing"))
+      update_button_icon(widgets->button, "media-playback-pause");
+    else
+      update_button_icon(widgets->button, "media-playback-start");
+  }
+
+  if (metadata_variant != NULL) g_variant_unref(metadata_variant);
+  if (playback_variant != NULL) g_variant_unref(playback_variant);
+}
+
 static void on_button_click(GtkWidget *widget, gpointer user_data)
 {
   struct DbusData* dbus_data = (struct DbusData*)user_data;
@@ -31,36 +71,13 @@ static GtkStatusIcon* create_tray_icon()
   return systray_icon;
 }
 
-static void set_button_icon_pause(GtkWidget* button, gpointer user_data)
-{
-  struct ButtonData* button_data = (struct ButtonData*)user_data;
-  button_data->current_icon = "media-playback-pause";
-  gtk_button_set_image(GTK_BUTTON(button_data->button), gtk_image_new_from_icon_name(button_data->current_icon,  button_data->icon_size));
-}
-
-static void swap_button_icon(GtkWidget* button, gpointer user_data)
-{
-  struct ButtonData* button_data = (struct ButtonData*)user_data;
-  GtkWidget* new_image;
-  
-  if (!strcmp(button_data->current_icon, "media-playback-pause"))
-  {
-    button_data->current_icon = "media-playback-start";
-    new_image = gtk_image_new_from_icon_name(button_data->current_icon, button_data->icon_size);
-  }
-  else {
-    button_data->current_icon = "media-playback-pause";
-    new_image = gtk_image_new_from_icon_name(button_data->current_icon, button_data->icon_size);
-  }
-  
-  gtk_button_set_image(GTK_BUTTON(button), new_image);
-}
-
 static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *event, gpointer user_data)
 {
   GDBusProxy* proxy = (GDBusProxy*)user_data;
   struct ButtonData* button_data = malloc(sizeof(struct ButtonData));
   struct DbusData* dbus_data = malloc(sizeof(struct DbusData)*3);
+  struct WidgetData* widget_data = malloc(sizeof(struct WidgetData));
+
   dbus_data[0].method = PLAYER_METHOD_PREVIOUS;
   dbus_data[1].method = PLAYER_METHOD_PLAYPAUSE;
   dbus_data[2].method = PLAYER_METHOD_NEXT;
@@ -79,6 +96,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *even
   // g_object_set_data_full assigns a data structure to a G_OBJECT. When the window is destroyed, memory is release with free
   g_object_set_data_full(G_OBJECT(main_window), "button_data_instance", button_data, free);
   g_object_set_data_full(G_OBJECT(main_window), "dbus_data_instance", dbus_data, free);
+  g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, free);
 
   //window configuration; window type is GTK_WINDOW_TOPLEVEL, but we have to make it look like a popup menu
   gtk_window_set_title(GTK_WINDOW(main_window), "spotify-status");
@@ -129,15 +147,16 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *even
 
   gtk_container_add(GTK_CONTAINER(main_window), main_grid);
 
+  widget_data->button = pause_button;
+  widget_data->label = label;
+
   //signals
-  g_signal_connect(pause_button, "clicked", G_CALLBACK(swap_button_icon), button_data);
   g_signal_connect(main_window, "focus-out-event", G_CALLBACK(on_focus_out), NULL);
   g_signal_connect(previous_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[0]);
   g_signal_connect(pause_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[1]);
   g_signal_connect(next_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[2]);
-  //after clicking the next/previous button, set the image of the center button to "pause" because the song starts playing
-  g_signal_connect(previous_button, "clicked", G_CALLBACK(set_button_icon_pause), button_data);
-  g_signal_connect(next_button, "clicked", G_CALLBACK(set_button_icon_pause), button_data);
+  //the signal persists so long as the window exists. Once the window is destroyed, the signal disappears (although proxy still lives)
+  g_signal_connect_object(proxy, "g-properties-changed", G_CALLBACK(on_spotify_properties_changed), main_window, G_CONNECT_DEFAULT);
   
   //free memory
   g_free(track_metadata);
@@ -155,7 +174,6 @@ static void activate (GtkApplication* app, gpointer user_data)
   g_signal_connect(systray_icon, "button-press-event", G_CALLBACK(create_main_window), proxy);
   //hold the application so it doesn't close
   g_application_hold(G_APPLICATION(app));
-  //g_signal_connect(systray_icon, "shutdown", G_CALLBACK(gtk_widget_destroy), NULL);
 }
 
 int main (int argc, char** argv)
@@ -171,7 +189,7 @@ int main (int argc, char** argv)
   g_signal_connect (app, "activate", G_CALLBACK (activate), proxy);
   int status = g_application_run (G_APPLICATION (app), argc, argv);
 
-  g_object_unref (app);
+  g_object_unref(app);
   g_object_unref(proxy);
   
   return status;

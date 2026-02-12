@@ -14,6 +14,9 @@ static gboolean on_focus_out(GtkWidget* window, GdkEventFocus* event, gpointer u
 static GtkStatusIcon* create_tray_icon();
 static void on_button_click(GtkWidget* widget, gpointer user_data);
 static void set_correct_button_icon(GtkWidget* button, gpointer user_data);
+static void on_spotify_properties_changed(GDBusProxy* proxy, GVariant* changed_properties, char** invalidated_properties, gpointer user_data);
+static void update_label(GDBusProxy* proxy, GtkWidget* label);
+static void update_button_icon(GtkWidget* button, const char* icon_name);
 
 //custom struct used to pass multiple arguments to swap_button_icon
 struct ButtonData
@@ -28,6 +31,13 @@ struct DbusData
 {
   GDBusProxy* proxy;
   const char* method;
+};
+
+//custom struct used to pass data to on_spotify_properties_changed
+struct WidgetData
+{
+  GtkWidget* button;
+  GtkWidget* label;
 };
 
 #endif

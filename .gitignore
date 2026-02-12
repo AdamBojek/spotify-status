@@ -54,4 +54,5 @@ dkms.conf
 # debug information files
 *.dwo
 
-./spotify-status
+# Executables
+spotify-status

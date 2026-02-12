@@ -75,7 +75,8 @@ char* get_track_metadata(GDBusProxy* proxy)
     }
 
     char* result =  g_strconcat(title, " - ", artist, NULL);
-    g_variant_unref(artist_variant);
-    g_variant_unref(metadata);
+    if (artist_variant != NULL) g_variant_unref(artist_variant);
+    if (metadata != NULL) g_variant_unref(metadata);
+    if (title_variant != NULL) g_variant_unref(title_variant);
     return result;
 }
