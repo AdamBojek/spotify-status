@@ -2,6 +2,9 @@
 #include "./mpris.h"
 #include "gio/gio.h"
 #include "glib-object.h"
+#include "glib.h"
+#include "gtk/gtk.h"
+#include <string.h>
 
 static void on_button_click(GtkWidget *widget, gpointer user_data)
 {
@@ -24,9 +27,15 @@ static GtkStatusIcon* create_tray_icon()
   gtk_status_icon_set_visible(systray_icon, 1);
   gtk_status_icon_set_has_tooltip(systray_icon, 1);
   gtk_status_icon_set_tooltip_text(systray_icon, "Spotify Status");
-  g_signal_connect(systray_icon, "button-press-event", G_CALLBACK(create_main_window), NULL);
 
   return systray_icon;
+}
+
+static void set_button_icon_pause(GtkWidget* button, gpointer user_data)
+{
+  struct ButtonData* button_data = (struct ButtonData*)user_data;
+  button_data->current_icon = "media-playback-pause";
+  gtk_button_set_image(GTK_BUTTON(button_data->button), gtk_image_new_from_icon_name(button_data->current_icon,  button_data->icon_size));
 }
 
 static void swap_button_icon(GtkWidget* button, gpointer user_data)
@@ -43,14 +52,13 @@ static void swap_button_icon(GtkWidget* button, gpointer user_data)
     button_data->current_icon = "media-playback-pause";
     new_image = gtk_image_new_from_icon_name(button_data->current_icon, button_data->icon_size);
   }
-
+  
   gtk_button_set_image(GTK_BUTTON(button), new_image);
 }
 
-static GtkWidget* create_main_window()
+static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *event, gpointer user_data)
 {
-  GDBusProxy* proxy = connect_to_dbus();
-
+  GDBusProxy* proxy = (GDBusProxy*)user_data;
   struct ButtonData* button_data = malloc(sizeof(struct ButtonData));
   struct DbusData* dbus_data = malloc(sizeof(struct DbusData)*3);
   dbus_data[0].method = PLAYER_METHOD_PREVIOUS;
@@ -91,11 +99,28 @@ static GtkWidget* create_main_window()
   gtk_grid_insert_column(GTK_GRID(main_grid), 1);
   gtk_grid_insert_column(GTK_GRID(main_grid), 2);
 
-  GtkWidget* label = gtk_label_new ("Title of the song currently playing and the artist");
+  char* track_metadata = get_track_metadata(proxy);
+  GtkWidget* label = gtk_label_new (track_metadata);
   GtkWidget* next_button = gtk_button_new_from_icon_name("media-skip-forward", button_data->icon_size);
-  button_data->current_icon = "media-playback-pause";
+  
+  //check playback status to initialize icon correctly
+  char* playback_status = get_playback_status(proxy);
+  if (playback_status == NULL)
+  {
+    g_printerr("Couldn't access the playback status. Assuming it's paused.");
+    button_data->current_icon = "media-playback-start";
+  }
+  else if (!strcmp(playback_status, "Playing"))
+  {
+    button_data->current_icon = "media-playback-pause";
+  }
+  else {
+    button_data->current_icon = "media-playback-start";
+  }
+
   GtkWidget* pause_button = gtk_button_new_from_icon_name(button_data->current_icon, button_data->icon_size);
   GtkWidget* previous_button = gtk_button_new_from_icon_name( "media-skip-backward", button_data->icon_size);
+  button_data->button = pause_button;
 
   gtk_grid_attach(GTK_GRID(main_grid), label, 0, 0, 3, 1);
   gtk_grid_attach(GTK_GRID(main_grid), previous_button, 0, 1, 1, 1);
@@ -110,15 +135,24 @@ static GtkWidget* create_main_window()
   g_signal_connect(previous_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[0]);
   g_signal_connect(pause_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[1]);
   g_signal_connect(next_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[2]);
+  //after clicking the next/previous button, set the image of the center button to "pause" because the song starts playing
+  g_signal_connect(previous_button, "clicked", G_CALLBACK(set_button_icon_pause), button_data);
+  g_signal_connect(next_button, "clicked", G_CALLBACK(set_button_icon_pause), button_data);
   
+  //free memory
+  g_free(track_metadata);
+  g_free(playback_status);
+
   gtk_widget_show_all (main_window);
   
-  return main_window;
+  return 1;
 }
 
 static void activate (GtkApplication* app, gpointer user_data)
 {
+  GDBusProxy* proxy = (GDBusProxy*)user_data;
   GtkStatusIcon* systray_icon = create_tray_icon();
+  g_signal_connect(systray_icon, "button-press-event", G_CALLBACK(create_main_window), proxy);
   //hold the application so it doesn't close
   g_application_hold(G_APPLICATION(app));
   //g_signal_connect(systray_icon, "shutdown", G_CALLBACK(gtk_widget_destroy), NULL);
@@ -126,12 +160,19 @@ static void activate (GtkApplication* app, gpointer user_data)
 
 int main (int argc, char** argv)
 {
-  char* application_id = "org.spotify.status";
+  GDBusProxy* proxy = connect_to_dbus();
+  if (proxy == NULL)
+  {
+    g_printerr("Could not access the D-Bus. Exiting...");
+    return 1;
+  }
+  const char* application_id = "org.spotify.status";
   GtkApplication* app = gtk_application_new (application_id, G_APPLICATION_DEFAULT_FLAGS);
-  g_signal_connect (app, "activate", G_CALLBACK (activate), NULL);
+  g_signal_connect (app, "activate", G_CALLBACK (activate), proxy);
   int status = g_application_run (G_APPLICATION (app), argc, argv);
 
   g_object_unref (app);
+  g_object_unref(proxy);
   
   return status;
 }

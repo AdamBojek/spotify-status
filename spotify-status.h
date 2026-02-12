@@ -7,16 +7,18 @@
 #include <gtk/gtk.h>
 
 //definitions
-static GtkWidget* create_main_window();
+static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *event, gpointer user_data);
 static void swap_button_icon(GtkWidget* button, gpointer user_data);
 static void activate (GtkApplication* app, gpointer user_data);
 static gboolean on_focus_out(GtkWidget* window, GdkEventFocus* event, gpointer user_data);
 static GtkStatusIcon* create_tray_icon();
 static void on_button_click(GtkWidget* widget, gpointer user_data);
+static void set_correct_button_icon(GtkWidget* button, gpointer user_data);
 
 //custom struct used to pass multiple arguments to swap_button_icon
 struct ButtonData
 {
+  GtkWidget* button;
   char* current_icon;
   GtkIconSize icon_size;
 };

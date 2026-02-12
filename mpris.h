@@ -13,7 +13,8 @@
 
 //definitions
 GDBusProxy* connect_to_dbus();
-char* get_track_info(GDBusProxy* proxy);
+char* get_track_metadata(GDBusProxy* proxy);
 gboolean send_dbus_message(GDBusProxy* proxy, const char* method);
+char* get_playback_status(GDBusProxy* proxy);
 
 #endif
