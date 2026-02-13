@@ -4,7 +4,44 @@
 #include "glib-object.h"
 #include "glib.h"
 #include "gtk/gtk.h"
+#include <gdk/gdkkeysyms.h>
 #include <string.h>
+#include <glib-unix.h>
+
+static gboolean unix_signal_handler(gpointer user_data)
+{
+  if (user_data != NULL)
+  {
+    gtk_widget_destroy((GtkWidget*)user_data);
+  }
+  return 1;
+}
+
+static void on_key_press_event(GtkWidget* window, GdkEventKey* event, gpointer user_data)
+{
+  //one of the ways to close the window is to press escape while the window is focused
+  if (event->keyval == GDK_KEY_Escape)
+    gtk_widget_destroy(window);
+}
+
+static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation, gpointer user_data)
+{
+    //user data is x position
+    gint anchor_x = GPOINTER_TO_INT(user_data);
+    
+    gint x_offset = 20;
+    //calculate new position, if window gets bigger, resize to the left
+    gint new_x = anchor_x - allocation->width + x_offset;
+    
+    if (new_x < 0) new_x = 0;
+
+    gint current_x, current_y;
+    gtk_window_get_position(GTK_WINDOW(window), &current_x, &current_y);
+
+    if (current_x != new_x) {
+        gtk_window_move(GTK_WINDOW(window), new_x, current_y);
+    }
+}
 
 static void update_label(GDBusProxy* proxy, GtkWidget* label)
 {
@@ -15,7 +52,7 @@ static void update_label(GDBusProxy* proxy, GtkWidget* label)
 
 static void update_button_icon(GtkWidget* button, const char* icon_name)
 {
-  GtkWidget* new_image = gtk_image_new_from_icon_name(icon_name, GTK_ICON_SIZE_BUTTON);
+  GtkWidget* new_image = gtk_image_new_from_icon_name(icon_name, BUTTON_ICON_SIZE);
   gtk_button_set_image(GTK_BUTTON(button), new_image);
 }
 
@@ -52,26 +89,20 @@ static void on_button_click(GtkWidget *widget, gpointer user_data)
   send_dbus_message(dbus_data->proxy, dbus_data->method);
 }
 
-static gboolean on_focus_out(GtkWidget* window, GdkEventFocus* event, gpointer user_data)
-{
-  gtk_widget_destroy(window);
-  //return false after destroying the window, let gtk handle the rest
-  return 0; 
-}
-
 static GtkStatusIcon* create_tray_icon()
 {
-  GtkStatusIcon* systray_icon = gtk_status_icon_new_from_file("/usr/share/icons/Papirus/22x22/panel/spotify-indicator.svg");
+  GdkPixbuf* icon = gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), "spotify-indicator", 22, 0, NULL);
+  GtkStatusIcon* systray_icon = gtk_status_icon_new_from_pixbuf(icon);
   gtk_status_icon_set_name(systray_icon, "spotify-status");
   gtk_status_icon_set_title(systray_icon, "Spotify Status");
   gtk_status_icon_set_visible(systray_icon, 1);
   gtk_status_icon_set_has_tooltip(systray_icon, 1);
   gtk_status_icon_set_tooltip_text(systray_icon, "Spotify Status");
-
+  g_object_unref(icon);
   return systray_icon;
 }
 
-static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *event, gpointer user_data)
+static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* event, gpointer user_data)
 {
   GDBusProxy* proxy = (GDBusProxy*)user_data;
   struct ButtonData* button_data = malloc(sizeof(struct ButtonData));
@@ -87,10 +118,6 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *even
     dbus_data[i].proxy = proxy;
   }
 
-  //used to set the specific position of the window, shouldn't be hardcoded
-  gint xpos, ypos, xoffset, yoffset;
-  xoffset = 1800;
-  yoffset = 40;
   GtkWidget* main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 
   // g_object_set_data_full assigns a data structure to a G_OBJECT. When the window is destroyed, memory is release with free
@@ -103,12 +130,17 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *even
   gtk_window_set_decorated(GTK_WINDOW(main_window), 0);
   gtk_window_set_resizable(GTK_WINDOW(main_window), 0);
   gtk_window_set_skip_taskbar_hint(GTK_WINDOW(main_window),1);
-  //GTK_WIN_POS_NONE means top-left of the screen, then we apply the offset to get the desired position
-  gtk_window_set_position(GTK_WINDOW(main_window), GTK_WIN_POS_NONE);
-  gtk_window_get_position(GTK_WINDOW(main_window), &xpos, &ypos);
-  gtk_window_move(GTK_WINDOW(main_window), xpos+xoffset, ypos+yoffset);
+  //if a window is sticky it will show up on all workspaces / desktops
+  //shouldnt be hardcoded, add it to the config file in the future
+  gtk_window_stick(GTK_WINDOW(main_window));
+  
+  //add transparency support
+  GdkVisual *visual = gdk_screen_get_rgba_visual(gtk_widget_get_screen(main_window));
+  if (visual) {
+    gtk_widget_set_visual(main_window, visual);
+  }
 
-  button_data->icon_size = GTK_ICON_SIZE_BUTTON;
+  button_data->icon_size = BUTTON_ICON_SIZE;
   //create grid
   GtkWidget* main_grid = gtk_grid_new();
   gtk_grid_insert_row(GTK_GRID(main_grid), 0);
@@ -147,22 +179,44 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton *even
 
   gtk_container_add(GTK_CONTAINER(main_window), main_grid);
 
+  //get mouse position when clicked
+  gint mouse_x = (gint)event->x_root;
+  gint mouse_y = (gint)event->y_root;
+
+  //vertical offset
+  gint start_y = mouse_y + 20;
+  gtk_window_move(GTK_WINDOW(main_window), mouse_x, start_y);
+
+  //whenever the window is resized (because the track names can be longer or shorter and the size of the window is not static)
+  //call on_window_size_allocate which should make sure the window stays anchored to a specific position
+  g_signal_connect(main_window, "size-allocate", G_CALLBACK(on_window_size_allocate), GINT_TO_POINTER(mouse_x));
+
   widget_data->button = pause_button;
   widget_data->label = label;
 
+  //assign names to widgets to make them easy to formt in style.css
+  gtk_widget_set_name(main_window, "spotify-status-window");
+  gtk_widget_set_name(previous_button, "spotify-status-previous-button");
+  gtk_widget_set_name(pause_button, "spotify-status-pause-button");
+  gtk_widget_set_name(next_button, "spotify-status-next-button");
+  gtk_widget_set_name(label, "spotify-status-label");
+  gtk_widget_set_name(main_grid, "spotify-status-grid");
+
   //signals
-  g_signal_connect(main_window, "focus-out-event", G_CALLBACK(on_focus_out), NULL);
+  g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press_event), NULL);
   g_signal_connect(previous_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[0]);
   g_signal_connect(pause_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[1]);
   g_signal_connect(next_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[2]);
   //the signal persists so long as the window exists. Once the window is destroyed, the signal disappears (although proxy still lives)
   g_signal_connect_object(proxy, "g-properties-changed", G_CALLBACK(on_spotify_properties_changed), main_window, G_CONNECT_DEFAULT);
-  
+  //connect custom user-sent unix signal
+  g_unix_signal_add(SIGUSR1, G_SOURCE_FUNC(unix_signal_handler), main_window);
+
   //free memory
   g_free(track_metadata);
   g_free(playback_status);
 
-  gtk_widget_show_all (main_window);
+  gtk_widget_show_all(main_window);
   
   return 1;
 }

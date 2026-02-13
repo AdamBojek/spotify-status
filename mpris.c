@@ -58,9 +58,13 @@ char* get_track_metadata(GDBusProxy* proxy)
     GVariant* metadata = g_dbus_proxy_get_cached_property(proxy, "Metadata");
     //get title
     GVariant* title_variant = g_variant_lookup_value(metadata, "xesam:title", G_VARIANT_TYPE_STRING);
-    title = g_variant_get_string(title_variant, NULL);
-    if (title == NULL)
+    if (title_variant == NULL)
+    {
         title = "Unknown title";
+    } else
+    {
+        title = g_variant_get_string(title_variant, NULL);
+    }
     //get artist
     GVariant* artist_variant = g_variant_lookup_value(metadata, "xesam:artist", G_VARIANT_TYPE_STRING_ARRAY);
     if (artist_variant == NULL)
