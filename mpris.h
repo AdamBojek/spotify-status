@@ -10,6 +10,7 @@
 #define PLAYER_METHOD_NEXT "Next"
 #define PLAYER_METHOD_PREVIOUS "Previous"
 #define PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
+#define CSS_FILE "./style.css"
 
 //definitions
 GDBusProxy* connect_to_dbus();

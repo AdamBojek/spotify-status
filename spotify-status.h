@@ -19,6 +19,7 @@ static void update_button_icon(GtkWidget* button, const char* icon_name);
 static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation, gpointer user_data);
 static void on_key_press_event (GtkWidget* window, GdkEventKey* event, gpointer user_data);
 static gboolean unix_signal_handler(gpointer user_data);
+static void load_css();
 
 //custom struct used to pass multiple arguments to swap_button_icon
 struct ButtonData

@@ -1,19 +1,48 @@
 #include "./spotify-status.h"
 #include "./mpris.h"
+#include "gdk/gdk.h"
 #include "gio/gio.h"
 #include "glib-object.h"
 #include "glib.h"
 #include "gtk/gtk.h"
+#include "gtk/gtkcssprovider.h"
 #include <gdk/gdkkeysyms.h>
 #include <string.h>
 #include <glib-unix.h>
 
+//store a pointer to the window to avoid creating multiple instances
+static GtkWidget *window_instance = NULL;
+
+//load css from file and apply it to the default screen
+static void load_css()
+{
+  GtkCssProvider* css_provider = gtk_css_provider_new();
+  GError* error = NULL;
+  GFile* css_file = g_file_new_for_path(CSS_FILE);
+  gtk_css_provider_load_from_file(css_provider, css_file, &error);
+  if (error)
+  {
+    g_printerr("Error loading style sheets: %s", error->message);
+    g_error_free(error);
+  } else 
+  {
+    GdkScreen* screen = gdk_screen_get_default();
+    gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER(css_provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    
+  }
+  if (css_file != NULL) g_object_unref(css_file);
+  g_object_unref(css_provider);
+}
+
+//this user-sent unix signal is used to tell the app to hide the current window. 
+//if the window is already set to hidden, it should show the window
 static gboolean unix_signal_handler(gpointer user_data)
 {
-  if (user_data != NULL)
-  {
-    gtk_widget_destroy((GtkWidget*)user_data);
-  }
+  if (gtk_widget_is_visible(window_instance))
+      gtk_widget_hide(window_instance);
+  else
+      gtk_widget_show_all(window_instance);
+
   return 1;
 }
 
@@ -21,9 +50,14 @@ static void on_key_press_event(GtkWidget* window, GdkEventKey* event, gpointer u
 {
   //one of the ways to close the window is to press escape while the window is focused
   if (event->keyval == GDK_KEY_Escape)
-    gtk_widget_destroy(window);
+    gtk_widget_hide(window_instance);
+  else if (event->keyval == GDK_KEY_space)
+    send_dbus_message((GDBusProxy*)user_data, "PlayPause");
 }
 
+//uses the window's top-right corner as the anchor. This is useful because the size of the window is dynamic;
+//this function makes it so that, if the next track has a longer title than the previous one;
+//the window will be extended to the left, as opposed to the right (where the screen would end)
 static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation, gpointer user_data)
 {
     //user data is x position
@@ -43,6 +77,7 @@ static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation
     }
 }
 
+//update track metadata (title - artist) when the track changes
 static void update_label(GDBusProxy* proxy, GtkWidget* label)
 {
   char* metadata = get_track_metadata(proxy);
@@ -50,6 +85,7 @@ static void update_label(GDBusProxy* proxy, GtkWidget* label)
   g_free(metadata);
 }
 
+//dynamically update the button icon (pause/resume)
 static void update_button_icon(GtkWidget* button, const char* icon_name)
 {
   GtkWidget* new_image = gtk_image_new_from_icon_name(icon_name, BUTTON_ICON_SIZE);
@@ -83,6 +119,7 @@ static void on_spotify_properties_changed(GDBusProxy* proxy, GVariant* changed_p
   if (playback_variant != NULL) g_variant_unref(playback_variant);
 }
 
+//wrapper for send_dbus_message, each button has a different method corresponing to it
 static void on_button_click(GtkWidget *widget, gpointer user_data)
 {
   struct DbusData* dbus_data = (struct DbusData*)user_data;
@@ -102,8 +139,19 @@ static GtkStatusIcon* create_tray_icon()
   return systray_icon;
 }
 
+//return 1 if successfully created the window, return 0 if it already exists
 static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* event, gpointer user_data)
 {
+  //check if window exists
+  if (window_instance)
+  {
+    //if its hidden, show it; if its's shown, hide it
+    if (gtk_widget_is_visible(window_instance))
+      gtk_widget_hide(window_instance);
+    else
+      gtk_widget_show_all(window_instance);
+    return 0;
+  }
   GDBusProxy* proxy = (GDBusProxy*)user_data;
   struct ButtonData* button_data = malloc(sizeof(struct ButtonData));
   struct DbusData* dbus_data = malloc(sizeof(struct DbusData)*3);
@@ -119,6 +167,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   }
 
   GtkWidget* main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  window_instance = main_window;
 
   // g_object_set_data_full assigns a data structure to a G_OBJECT. When the window is destroyed, memory is release with free
   g_object_set_data_full(G_OBJECT(main_window), "button_data_instance", button_data, free);
@@ -203,7 +252,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   gtk_widget_set_name(main_grid, "spotify-status-grid");
 
   //signals
-  g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press_event), NULL);
+  g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press_event), proxy);
   g_signal_connect(previous_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[0]);
   g_signal_connect(pause_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[1]);
   g_signal_connect(next_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[2]);
@@ -211,6 +260,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   g_signal_connect_object(proxy, "g-properties-changed", G_CALLBACK(on_spotify_properties_changed), main_window, G_CONNECT_DEFAULT);
   //connect custom user-sent unix signal
   g_unix_signal_add(SIGUSR1, G_SOURCE_FUNC(unix_signal_handler), main_window);
+  g_signal_connect(main_window, "destroy", G_CALLBACK(gtk_widget_destroyed), &window_instance);
 
   //free memory
   g_free(track_metadata);
@@ -221,10 +271,12 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   return 1;
 }
 
+//called when the application starts
 static void activate (GtkApplication* app, gpointer user_data)
 {
   GDBusProxy* proxy = (GDBusProxy*)user_data;
   GtkStatusIcon* systray_icon = create_tray_icon();
+  load_css();
   g_signal_connect(systray_icon, "button-press-event", G_CALLBACK(create_main_window), proxy);
   //hold the application so it doesn't close
   g_application_hold(G_APPLICATION(app));
