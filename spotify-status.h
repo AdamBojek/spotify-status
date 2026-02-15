@@ -43,4 +43,9 @@ struct WidgetData
   GtkWidget* label;
 };
 
+struct AnchorPoint {
+    gint x;
+    gint y;
+};
+
 #endif

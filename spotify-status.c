@@ -60,20 +60,17 @@ static void on_key_press_event(GtkWidget* window, GdkEventKey* event, gpointer u
 //the window will be extended to the left, as opposed to the right (where the screen would end)
 static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation, gpointer user_data)
 {
-    //user data is x position
-    gint anchor_x = GPOINTER_TO_INT(user_data);
+    struct AnchorPoint* anchor = (struct AnchorPoint*)user_data;
     
+    //dont hardcode this
     gint x_offset = 20;
     //calculate new position, if window gets bigger, resize to the left
-    gint new_x = anchor_x - allocation->width + x_offset;
+    gint new_x = anchor->x - allocation->width + x_offset;
     
     if (new_x < 0) new_x = 0;
 
-    gint current_x, current_y;
-    gtk_window_get_position(GTK_WINDOW(window), &current_x, &current_y);
-
-    if (current_x != new_x) {
-        gtk_window_move(GTK_WINDOW(window), new_x, current_y);
+    if (anchor->x != new_x) {
+        gtk_window_move(GTK_WINDOW(window), new_x, anchor->y);
     }
 }
 
@@ -153,9 +150,10 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
     return 0;
   }
   GDBusProxy* proxy = (GDBusProxy*)user_data;
-  struct ButtonData* button_data = malloc(sizeof(struct ButtonData));
-  struct DbusData* dbus_data = malloc(sizeof(struct DbusData)*3);
-  struct WidgetData* widget_data = malloc(sizeof(struct WidgetData));
+  struct ButtonData* button_data = g_malloc(sizeof(struct ButtonData));
+  struct DbusData* dbus_data = g_malloc(sizeof(struct DbusData)*3);
+  struct WidgetData* widget_data = g_malloc(sizeof(struct WidgetData));
+  struct AnchorPoint* anchor = g_malloc(sizeof(struct AnchorPoint));
 
   dbus_data[0].method = PLAYER_METHOD_PREVIOUS;
   dbus_data[1].method = PLAYER_METHOD_PLAYPAUSE;
@@ -170,13 +168,15 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   window_instance = main_window;
 
   // g_object_set_data_full assigns a data structure to a G_OBJECT. When the window is destroyed, memory is release with free
-  g_object_set_data_full(G_OBJECT(main_window), "button_data_instance", button_data, free);
-  g_object_set_data_full(G_OBJECT(main_window), "dbus_data_instance", dbus_data, free);
-  g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, free);
+  g_object_set_data_full(G_OBJECT(main_window), "button_data_instance", button_data, g_free);
+  g_object_set_data_full(G_OBJECT(main_window), "dbus_data_instance", dbus_data, g_free);
+  g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, g_free);
+  g_object_set_data_full(G_OBJECT(main_window), "anchor_point_instance", anchor, g_free);
 
   //window configuration; window type is GTK_WINDOW_TOPLEVEL, but we have to make it look like a popup menu
   gtk_window_set_title(GTK_WINDOW(main_window), "spotify-status");
   gtk_window_set_decorated(GTK_WINDOW(main_window), 0);
+  gtk_window_set_type_hint(GTK_WINDOW(main_window), GDK_WINDOW_TYPE_HINT_NOTIFICATION);
   gtk_window_set_resizable(GTK_WINDOW(main_window), 0);
   gtk_window_set_skip_taskbar_hint(GTK_WINDOW(main_window),1);
   //if a window is sticky it will show up on all workspaces / desktops
@@ -234,11 +234,15 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
 
   //vertical offset
   gint start_y = mouse_y + 20;
+
+  anchor->x = mouse_x;
+  anchor->y = start_y;
+
   gtk_window_move(GTK_WINDOW(main_window), mouse_x, start_y);
 
   //whenever the window is resized (because the track names can be longer or shorter and the size of the window is not static)
   //call on_window_size_allocate which should make sure the window stays anchored to a specific position
-  g_signal_connect(main_window, "size-allocate", G_CALLBACK(on_window_size_allocate), GINT_TO_POINTER(mouse_x));
+  g_signal_connect(main_window, "size-allocate", G_CALLBACK(on_window_size_allocate), anchor);
 
   widget_data->button = pause_button;
   widget_data->label = label;
