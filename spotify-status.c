@@ -9,6 +9,7 @@
 #include <gdk/gdkkeysyms.h>
 #include <string.h>
 #include <glib-unix.h>
+#include "config.h"
 
 //store a pointer to the window to avoid creating multiple instances
 static GtkWidget *window_instance = NULL;
@@ -62,10 +63,8 @@ static void on_window_size_allocate(GtkWidget *window, GtkAllocation *allocation
 {
     struct AnchorPoint* anchor = (struct AnchorPoint*)user_data;
     
-    //dont hardcode this
-    gint x_offset = 20;
     //calculate new position, if window gets bigger, resize to the left
-    gint new_x = anchor->x - allocation->width + x_offset;
+    gint new_x = anchor->x - allocation->width;
     
     if (new_x < 0) new_x = 0;
 
@@ -149,11 +148,14 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
       gtk_widget_show_all(window_instance);
     return 0;
   }
+  //from this point on, this code should only run once
   GDBusProxy* proxy = (GDBusProxy*)user_data;
   struct ButtonData* button_data = g_malloc(sizeof(struct ButtonData));
   struct DbusData* dbus_data = g_malloc(sizeof(struct DbusData)*3);
   struct WidgetData* widget_data = g_malloc(sizeof(struct WidgetData));
   struct AnchorPoint* anchor = g_malloc(sizeof(struct AnchorPoint));
+  //load configuration
+  struct AppConfig* app_config = load_application_config();
 
   dbus_data[0].method = PLAYER_METHOD_PREVIOUS;
   dbus_data[1].method = PLAYER_METHOD_PLAYPAUSE;
@@ -172,16 +174,18 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   g_object_set_data_full(G_OBJECT(main_window), "dbus_data_instance", dbus_data, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "anchor_point_instance", anchor, g_free);
+  g_object_set_data_full(G_OBJECT(main_window), "app_config_instance", app_config, g_free);
 
   //window configuration; window type is GTK_WINDOW_TOPLEVEL, but we have to make it look like a popup menu
   gtk_window_set_title(GTK_WINDOW(main_window), "spotify-status");
   gtk_window_set_decorated(GTK_WINDOW(main_window), 0);
   gtk_window_set_type_hint(GTK_WINDOW(main_window), GDK_WINDOW_TYPE_HINT_NOTIFICATION);
-  gtk_window_set_resizable(GTK_WINDOW(main_window), 0);
+  if (app_config->resizable)
+    gtk_window_set_resizable(GTK_WINDOW(main_window), 0);
   gtk_window_set_skip_taskbar_hint(GTK_WINDOW(main_window),1);
   //if a window is sticky it will show up on all workspaces / desktops
-  //shouldnt be hardcoded, add it to the config file in the future
-  gtk_window_stick(GTK_WINDOW(main_window));
+  if (app_config->g_stick)
+    gtk_window_stick(GTK_WINDOW(main_window));
   
   //add transparency support
   GdkVisual *visual = gdk_screen_get_rgba_visual(gtk_widget_get_screen(main_window));
@@ -232,17 +236,18 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   gint mouse_x = (gint)event->x_root;
   gint mouse_y = (gint)event->y_root;
 
-  //vertical offset
-  gint start_y = mouse_y + 20;
+  //apply offset
+  anchor->x = mouse_x + app_config->x_offset;
+  anchor->y = mouse_y + app_config->y_offset;
 
-  anchor->x = mouse_x;
-  anchor->y = start_y;
-
-  gtk_window_move(GTK_WINDOW(main_window), mouse_x, start_y);
+  gtk_window_move(GTK_WINDOW(main_window), anchor->x, anchor->y);
 
   //whenever the window is resized (because the track names can be longer or shorter and the size of the window is not static)
   //call on_window_size_allocate which should make sure the window stays anchored to a specific position
-  g_signal_connect(main_window, "size-allocate", G_CALLBACK(on_window_size_allocate), anchor);
+  //if the widget shows up on the left size of the screen, this is a non-issue, because the window by default gets extened to the right
+  //but if it show up on the right, it needs to be corrected
+  if (!strcmp(app_config->system_tray_position, "right"))
+    g_signal_connect(main_window, "size-allocate", G_CALLBACK(on_window_size_allocate), anchor);
 
   widget_data->button = pause_button;
   widget_data->label = label;
