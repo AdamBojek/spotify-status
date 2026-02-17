@@ -174,7 +174,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   g_object_set_data_full(G_OBJECT(main_window), "dbus_data_instance", dbus_data, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "anchor_point_instance", anchor, g_free);
-  g_object_set_data_full(G_OBJECT(main_window), "app_config_instance", app_config, g_free);
+  g_object_set_data_full(G_OBJECT(main_window), "app_config_instance", app_config, (GDestroyNotify)free_app_config);
 
   //window configuration; window type is GTK_WINDOW_TOPLEVEL, but we have to make it look like a popup menu
   gtk_window_set_title(GTK_WINDOW(main_window), "spotify-status");
