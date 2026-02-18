@@ -56,6 +56,11 @@ char* get_track_metadata(GDBusProxy* proxy)
     const char* title;
     const char* artist;
     GVariant* metadata = g_dbus_proxy_get_cached_property(proxy, "Metadata");
+    if (metadata == NULL)
+    {
+        //caller is responsible for freeing the memory, so we have to dupe it
+        return g_strdup("Unknown title - Unknown artist");
+    }
     //get title
     GVariant* title_variant = g_variant_lookup_value(metadata, "xesam:title", G_VARIANT_TYPE_STRING);
     if (title_variant == NULL)
@@ -69,12 +74,13 @@ char* get_track_metadata(GDBusProxy* proxy)
     GVariant* artist_variant = g_variant_lookup_value(metadata, "xesam:artist", G_VARIANT_TYPE_STRING_ARRAY);
     if (artist_variant == NULL)
     {
-        artist = "Unknown artist";
+        artist = g_strdup("Unknown artist");
     } else
     {
         //get just the first artist
         GVariant* first_artist = g_variant_get_child_value(artist_variant, 0);
-        artist = g_variant_get_string(first_artist, NULL);
+        //dupe the string so it persists after the variant is unreffed
+        artist = g_strdup(g_variant_get_string(first_artist, NULL));
         g_variant_unref(first_artist);
     }
 
@@ -82,5 +88,6 @@ char* get_track_metadata(GDBusProxy* proxy)
     if (artist_variant != NULL) g_variant_unref(artist_variant);
     if (metadata != NULL) g_variant_unref(metadata);
     if (title_variant != NULL) g_variant_unref(title_variant);
+    g_free(artist);
     return result;
 }
