@@ -4,6 +4,38 @@
 #include "glibconfig.h"
 #include <stdio.h>
 
+gint get_current_position(GDBusProxy* proxy)
+{
+    GVariant* metadata_variant = g_dbus_proxy_get_cached_property(proxy, "Metadata");
+    if (metadata_variant == NULL)
+        return 0;
+    GVariant* track_length_variant = g_variant_lookup_value(metadata_variant, "mpris:position", G_VARIANT_TYPE_INT64);
+    if (track_length_variant == NULL)
+    {
+        g_variant_unref(metadata_variant);
+        return 0;
+    }
+    int current_position = g_variant_get_int64(track_length_variant);
+    g_variant_unref(track_length_variant);
+    return current_position;
+}
+
+gint get_track_length(GDBusProxy* proxy)
+{
+    GVariant* metadata_variant = g_dbus_proxy_get_cached_property(proxy, "Metadata");
+    if (metadata_variant == NULL)
+        return 0;
+    GVariant* track_length_variant = g_variant_lookup_value(metadata_variant, "mpris:length", G_VARIANT_TYPE_INT64);
+    if (track_length_variant == NULL)
+    {
+        g_variant_unref(metadata_variant);
+        return 0;
+    }
+    int track_length = g_variant_get_int64(track_length_variant);
+    g_variant_unref(track_length_variant);
+    return track_length;
+}
+
 GDBusProxy* connect_to_dbus()
 {
     GError* error = NULL;
@@ -29,7 +61,7 @@ GDBusProxy* connect_to_dbus()
 gboolean send_dbus_message(GDBusProxy *proxy, const char *method)
 {
     GError* error = NULL;
-    g_dbus_proxy_call(proxy, method, NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, &error);
+    g_dbus_proxy_call_sync(proxy, method, NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
     
     if (error) {
         printf("Error sending DBus message: %s\n", error->message);

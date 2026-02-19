@@ -13,6 +13,8 @@
 #define CSS_FILE "./style.css"
 
 //definitions
+gint get_current_position(GDBusProxy* proxy);
+gint get_track_length(GDBusProxy* proxy);
 GDBusProxy* connect_to_dbus();
 char* get_track_metadata(GDBusProxy* proxy);
 gboolean send_dbus_message(GDBusProxy* proxy, const char* method);

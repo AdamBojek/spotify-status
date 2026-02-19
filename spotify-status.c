@@ -10,6 +10,7 @@
 #include <string.h>
 #include <glib-unix.h>
 #include "config.h"
+#include "progressbar.h"
 
 //store a pointer to the window to avoid creating multiple instances
 static GtkWidget *window_instance = NULL;
@@ -198,6 +199,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   GtkWidget* main_grid = gtk_grid_new();
   gtk_grid_insert_row(GTK_GRID(main_grid), 0);
   gtk_grid_insert_row(GTK_GRID(main_grid), 1);
+  gtk_grid_insert_row(GTK_GRID(main_grid), 2);
   gtk_grid_insert_column(GTK_GRID(main_grid), 0);
   gtk_grid_insert_column(GTK_GRID(main_grid), 1);
   gtk_grid_insert_column(GTK_GRID(main_grid), 2);
@@ -225,10 +227,13 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   GtkWidget* previous_button = gtk_button_new_from_icon_name( "media-skip-backward", button_data->icon_size);
   button_data->button = pause_button;
 
+  GtkWidget* progressbar = create_progressbar(proxy);
+
   gtk_grid_attach(GTK_GRID(main_grid), label, 0, 0, 3, 1);
   gtk_grid_attach(GTK_GRID(main_grid), previous_button, 0, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(main_grid), pause_button, 1, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(main_grid), next_button, 2, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(main_grid), progressbar, 0, 2, 3, 1);
 
   gtk_container_add(GTK_CONTAINER(main_window), main_grid);
 
@@ -259,6 +264,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   gtk_widget_set_name(next_button, "spotify-status-next-button");
   gtk_widget_set_name(label, "spotify-status-label");
   gtk_widget_set_name(main_grid, "spotify-status-grid");
+  gtk_widget_set_name(progressbar, "spotify-status-progressbar");
 
   //signals
   g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press_event), proxy);
