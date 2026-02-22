@@ -120,7 +120,7 @@ char* get_track_metadata(GDBusProxy* proxy)
     }
     //get artist
     GVariant* artist_variant = g_variant_lookup_value(metadata, "xesam:artist", G_VARIANT_TYPE_STRING_ARRAY);
-    if (artist_variant == NULL)
+    if (artist_variant == NULL || g_variant_n_children(artist_variant) == 0)
     {
         artist = g_strdup("Unknown artist");
     } else

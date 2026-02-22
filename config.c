@@ -23,6 +23,7 @@ struct AppConfig* load_application_config()
         default_config->y_offset = g_key_file_get_integer(parser, "AppConfig", "y_offset", NULL);
         default_config->g_stick = g_key_file_get_boolean(parser, "AppConfig", "g_stick", NULL);
         default_config->resizable = g_key_file_get_boolean(parser, "AppConfig", "resizable", NULL);
+        g_free(default_config->system_tray_position);
         default_config->system_tray_position = g_key_file_get_string(parser, "AppConfig", "system_tray_position", &error);
         if (error)
         {

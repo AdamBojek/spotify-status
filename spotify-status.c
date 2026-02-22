@@ -268,7 +268,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   widget_data->button = pause_button;
   widget_data->label = label;
 
-  //assign names to widgets to make them easy to formt in style.css
+  //assign names to widgets to make them easy to format in style.css
   gtk_widget_set_name(main_window, "spotify-status-window");
   gtk_widget_set_name(previous_button, "spotify-status-previous-button");
   gtk_widget_set_name(pause_button, "spotify-status-pause-button");
@@ -302,9 +302,10 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
 static void activate (GtkApplication* app, gpointer user_data)
 {
   GDBusProxy* proxy = (GDBusProxy*)user_data;
-  GtkStatusIcon* systray_icon = create_tray_icon();
+  GtkStatusIcon* system_tray_icon = create_tray_icon();
   load_css();
-  g_signal_connect(systray_icon, "button-press-event", G_CALLBACK(create_main_window), proxy);
+  g_object_set_data_full(G_OBJECT(app), "system_tray_icon_instance", system_tray_icon, g_object_unref);
+  g_signal_connect(system_tray_icon, "button-press-event", G_CALLBACK(create_main_window), proxy);
   //hold the application so it doesn't close
   g_application_hold(G_APPLICATION(app));
 }
@@ -324,6 +325,5 @@ int main (int argc, char** argv)
 
   g_object_unref(app);
   g_object_unref(proxy);
-  
   return status;
 }
