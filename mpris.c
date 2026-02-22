@@ -4,36 +4,49 @@
 #include "glibconfig.h"
 #include <stdio.h>
 
-gint get_current_position(GDBusProxy* proxy)
+//voodoo magic
+gdouble get_current_position(GDBusProxy* proxy)
 {
-    GVariant* metadata_variant = g_dbus_proxy_get_cached_property(proxy, "Metadata");
-    if (metadata_variant == NULL)
-        return 0;
-    GVariant* track_length_variant = g_variant_lookup_value(metadata_variant, "mpris:position", G_VARIANT_TYPE_INT64);
-    if (track_length_variant == NULL)
-    {
-        g_variant_unref(metadata_variant);
+    GError *error = NULL;
+    //get position (variant)
+    GVariant *result = g_dbus_proxy_call_sync(proxy,
+                                             "org.freedesktop.DBus.Properties.Get",
+                                             g_variant_new("(ss)", PLAYER_INTERFACE, "Position"),
+                                             G_DBUS_CALL_FLAGS_NONE,
+                                             -1, NULL, &error);
+
+    if (error) {
+        g_printerr("Error getting position: %s\n", error->message);
+        g_error_free(error);
         return 0;
     }
-    int current_position = g_variant_get_int64(track_length_variant);
-    g_variant_unref(track_length_variant);
-    return current_position;
+
+    GVariant *inner;
+    g_variant_get(result, "(v)", &inner);
+    
+    gint64 position = g_variant_get_int64(inner);
+    
+    g_variant_unref(inner);
+    g_variant_unref(result);
+
+    return (gdouble)(position / 1000000.0);
 }
 
-gint get_track_length(GDBusProxy* proxy)
+gdouble get_track_length(GDBusProxy* proxy)
 {
     GVariant* metadata_variant = g_dbus_proxy_get_cached_property(proxy, "Metadata");
     if (metadata_variant == NULL)
         return 0;
-    GVariant* track_length_variant = g_variant_lookup_value(metadata_variant, "mpris:length", G_VARIANT_TYPE_INT64);
+    GVariant* track_length_variant = g_variant_lookup_value(metadata_variant, "mpris:length", G_VARIANT_TYPE_UINT64);
     if (track_length_variant == NULL)
     {
         g_variant_unref(metadata_variant);
         return 0;
     }
-    int track_length = g_variant_get_int64(track_length_variant);
+    gint64 track_length = g_variant_get_uint64(track_length_variant);
     g_variant_unref(track_length_variant);
-    return track_length;
+    g_variant_unref(metadata_variant);
+    return (gdouble)(track_length / 1000000.0); //convert microseconds to seconds
 }
 
 GDBusProxy* connect_to_dbus()
@@ -61,16 +74,19 @@ GDBusProxy* connect_to_dbus()
 gboolean send_dbus_message(GDBusProxy *proxy, const char *method)
 {
     GError* error = NULL;
-    g_dbus_proxy_call_sync(proxy, method, NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+    GVariant* result =g_dbus_proxy_call_sync(proxy, method, NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
     
     if (error) {
         printf("Error sending DBus message: %s\n", error->message);
         g_error_free(error);
+        if (result != NULL) g_variant_unref(result);
         return 0;
     }
+    if (result != NULL) g_variant_unref(result);
     return 1;
 }
 
+//caller is responsible for freeing the string
 char* get_playback_status(GDBusProxy* proxy)
 {
     GVariant* playback_status_value = g_dbus_proxy_get_cached_property(proxy, "PlaybackStatus");

@@ -12,7 +12,7 @@ struct AppConfig* load_application_config()
     default_config->y_offset = 0;
     default_config->g_stick = FALSE;
     default_config->resizable = FALSE;
-    default_config->system_tray_position = "right";
+    default_config->system_tray_position = g_strdup("right");
     if (error)
     {
         g_printerr("Could not load config file: %s", error->message);

@@ -24,7 +24,7 @@ static void load_css()
   gtk_css_provider_load_from_file(css_provider, css_file, &error);
   if (error)
   {
-    g_printerr("Error loading style sheets: %s", error->message);
+    g_printerr("Error loading style sheets: %s \n", error->message);
     g_error_free(error);
   } else 
   {
@@ -40,12 +40,13 @@ static void load_css()
 //if the window is already set to hidden, it should show the window
 static gboolean unix_signal_handler(gpointer user_data)
 {
+  g_print("Intercepted SIGUSR1\n");
   if (gtk_widget_is_visible(window_instance))
       gtk_widget_hide(window_instance);
   else
       gtk_widget_show_all(window_instance);
 
-  return 1;
+  return G_SOURCE_CONTINUE;
 }
 
 static void on_key_press_event(GtkWidget* window, GdkEventKey* event, gpointer user_data)
@@ -91,8 +92,10 @@ static void update_button_icon(GtkWidget* button, const char* icon_name)
 
 static void on_spotify_properties_changed(GDBusProxy* proxy, GVariant* changed_properties, char** invalidated_properties, gpointer user_data)
 {
+  //voodoo magic
   GtkWidget* window = GTK_WIDGET(user_data);
   struct WidgetData* widgets = (struct WidgetData*)g_object_get_data(G_OBJECT(window), "widget_data_instance");
+  struct ProgressbarData* progressbar_data = (struct ProgressbarData*)g_object_get_data(G_OBJECT(window), "progressbar_data_instance");
   if (widgets == NULL) return;
   GVariant* metadata_variant = g_variant_lookup_value(changed_properties, "Metadata", G_VARIANT_TYPE("a{sv}"));
   GVariant* playback_variant = g_variant_lookup_value(changed_properties, "PlaybackStatus", G_VARIANT_TYPE_STRING);
@@ -101,15 +104,23 @@ static void on_spotify_properties_changed(GDBusProxy* proxy, GVariant* changed_p
   {
     //metadata has changed, so update the label
     update_label(proxy, widgets->label);
+    //and update progressbar
+    update_progressbar_on_track_changed(progressbar_data);
   }
   if (playback_variant != NULL)
   {
     //PlaybackStatus has changed, update the button icon
     const char* playback_status = g_variant_get_string(playback_variant, NULL);
     if (!strcmp(playback_status, "Playing"))
+    {
+      progressbar_data->is_playing = TRUE;
       update_button_icon(widgets->button, "media-playback-pause");
+    }
     else
+    {
+      progressbar_data->is_playing = FALSE;
       update_button_icon(widgets->button, "media-playback-start");
+    }
   }
 
   if (metadata_variant != NULL) g_variant_unref(metadata_variant);
@@ -151,6 +162,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   }
   //from this point on, this code should only run once
   GDBusProxy* proxy = (GDBusProxy*)user_data;
+  struct ProgressbarData* progressbar_data = create_progressbar(proxy);
   struct ButtonData* button_data = g_malloc(sizeof(struct ButtonData));
   struct DbusData* dbus_data = g_malloc(sizeof(struct DbusData)*3);
   struct WidgetData* widget_data = g_malloc(sizeof(struct WidgetData));
@@ -176,13 +188,14 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   g_object_set_data_full(G_OBJECT(main_window), "widget_data_instance", widget_data, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "anchor_point_instance", anchor, g_free);
   g_object_set_data_full(G_OBJECT(main_window), "app_config_instance", app_config, (GDestroyNotify)free_app_config);
-
+  g_object_set_data_full(G_OBJECT(main_window), "progressbar_data_instance", progressbar_data, (GDestroyNotify)free_progressbar_data);
+  
   //window configuration; window type is GTK_WINDOW_TOPLEVEL, but we have to make it look like a popup menu
   gtk_window_set_title(GTK_WINDOW(main_window), "spotify-status");
   gtk_window_set_decorated(GTK_WINDOW(main_window), 0);
   gtk_window_set_type_hint(GTK_WINDOW(main_window), GDK_WINDOW_TYPE_HINT_NOTIFICATION);
   if (app_config->resizable)
-    gtk_window_set_resizable(GTK_WINDOW(main_window), 0);
+    gtk_window_set_resizable(GTK_WINDOW(main_window), 1);
   gtk_window_set_skip_taskbar_hint(GTK_WINDOW(main_window),1);
   //if a window is sticky it will show up on all workspaces / desktops
   if (app_config->g_stick)
@@ -212,7 +225,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   char* playback_status = get_playback_status(proxy);
   if (playback_status == NULL)
   {
-    g_printerr("Couldn't access the playback status. Assuming it's paused.");
+    g_printerr("Couldn't access the playback status. Assuming it's paused.\n");
     button_data->current_icon = "media-playback-start";
   }
   else if (!strcmp(playback_status, "Playing"))
@@ -227,13 +240,11 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   GtkWidget* previous_button = gtk_button_new_from_icon_name( "media-skip-backward", button_data->icon_size);
   button_data->button = pause_button;
 
-  GtkWidget* progressbar = create_progressbar(proxy);
-
   gtk_grid_attach(GTK_GRID(main_grid), label, 0, 0, 3, 1);
   gtk_grid_attach(GTK_GRID(main_grid), previous_button, 0, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(main_grid), pause_button, 1, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(main_grid), next_button, 2, 1, 1, 1);
-  gtk_grid_attach(GTK_GRID(main_grid), progressbar, 0, 2, 3, 1);
+  gtk_grid_attach(GTK_GRID(main_grid), progressbar_data->progressbar, 0, 2, 3, 1);
 
   gtk_container_add(GTK_CONTAINER(main_window), main_grid);
 
@@ -264,7 +275,7 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   gtk_widget_set_name(next_button, "spotify-status-next-button");
   gtk_widget_set_name(label, "spotify-status-label");
   gtk_widget_set_name(main_grid, "spotify-status-grid");
-  gtk_widget_set_name(progressbar, "spotify-status-progressbar");
+  gtk_widget_set_name(progressbar_data->progressbar, "spotify-status-progressbar");
 
   //signals
   g_signal_connect(main_window, "key-press-event", G_CALLBACK(on_key_press_event), proxy);
@@ -273,10 +284,11 @@ static gboolean create_main_window(GtkWidget* systray_icon, GdkEventButton* even
   g_signal_connect(next_button, "clicked", G_CALLBACK(on_button_click), &dbus_data[2]);
   //the signal persists so long as the window exists. Once the window is destroyed, the signal disappears (although proxy still lives)
   g_signal_connect_object(proxy, "g-properties-changed", G_CALLBACK(on_spotify_properties_changed), main_window, G_CONNECT_DEFAULT);
+  g_signal_connect(proxy, "g-signal::Seeked", G_CALLBACK(update_progressbar_on_seeked), progressbar_data);
   //connect custom user-sent unix signal
   g_unix_signal_add(SIGUSR1, G_SOURCE_FUNC(unix_signal_handler), main_window);
   g_signal_connect(main_window, "destroy", G_CALLBACK(gtk_widget_destroyed), &window_instance);
-
+  
   //free memory
   g_free(track_metadata);
   g_free(playback_status);
@@ -302,7 +314,7 @@ int main (int argc, char** argv)
   GDBusProxy* proxy = connect_to_dbus();
   if (proxy == NULL)
   {
-    g_printerr("Could not access the D-Bus. Exiting...");
+    g_printerr("Could not access the D-Bus. Exiting...\n");
     return 1;
   }
   const char* application_id = "org.spotify.status";

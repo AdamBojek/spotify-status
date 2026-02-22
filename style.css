@@ -1,5 +1,5 @@
 #spotify-status-window {
-    background-color: rgba(20,20,20,0.70); /* rgba(42, 44, 46, 0.7);*/
+    background-color: rgba(20,20,20,0.80); /* rgba(42, 44, 46, 0.7);*/
     border-radius: 12px; /*10px;*/
 	border: 2px solid #1db954;
 	padding:15px;
@@ -45,12 +45,13 @@
     background-color: rgba(255, 255, 255, 0.4);
 }
 
-progressbar trough {
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 5px;
-    min-height: 10px
+#spotify-status-progressbar {
+    margin-top: 0px;
+    min-width: 250px;
 }
 
-progressbar progress {
-    background-color: rgba(255, 255, 255, 0.4);
+#spotify-status-progressbar contents trough slider {
+    min-height: 10px;
+    min-width: 10px;
+    margin: -5px;
 }
