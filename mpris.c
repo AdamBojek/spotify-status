@@ -9,8 +9,13 @@ void seek_to_position(GDBusProxy* proxy, gdouble position_seconds)
     //we use method SetPosition which takes arguments: "o" - TrackId, "x" - Position
     //first, get TrackId
     char* track_id = get_track_id(proxy);
+    if (track_id == NULL)
+    {
+        g_printerr("Error getting track ID\n");
+        return;
+    }
     GError* error = NULL;
-    GVariant* result = g_dbus_proxy_call_sync(proxy, "SetPosition", g_variant_new("(ox)", track_id, position_seconds * 1000000), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+    GVariant* result = g_dbus_proxy_call_sync(proxy, "SetPosition", g_variant_new("(ox)", track_id, (gint64)(position_seconds * 1000000.0)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
     if (error)
     {
         g_printerr("Error seeking to position: %s\n", error->message);
@@ -24,20 +29,19 @@ char* get_track_id(GDBusProxy* proxy)
 {
     GVariant* metadata = g_dbus_proxy_get_cached_property(proxy, "Metadata");
     if (metadata == NULL) return NULL;
-    GVariant* track_id_variant = g_variant_lookup_value(metadata, "mpris:trackid", G_VARIANT_TYPE_OBJECT_PATH);
+    
+    GVariant* track_id_variant = g_variant_lookup_value(metadata, "mpris:trackid", NULL);
     if (track_id_variant == NULL)
     {
         g_variant_unref(metadata);
         return NULL;
     }
-    else 
-    {
-        const char* track_id = g_variant_get_string(track_id_variant, NULL);
-        g_variant_unref(metadata);
-        g_variant_unref(track_id_variant);
-        return g_strdup(track_id);
-    }
+    char* track_id = g_variant_dup_string(track_id_variant, NULL);
+    g_variant_unref(track_id_variant);
+    g_variant_unref(metadata);
+    return track_id;
 }
+
 //voodoo magic
 gdouble get_current_position(GDBusProxy* proxy)
 {

@@ -13,6 +13,8 @@ gboolean switch_dragging_state(GtkScale* scale, GdkEventButton* event, gpointer 
     else if (event->type == GDK_BUTTON_RELEASE)
     {
         progressbar_data->is_dragging = FALSE;
+        //only call seek_to_position when the button is released to avoid jittering
+        seek_to_position(progressbar_data->proxy, progressbar_data->current_val);
     }
     return FALSE;
 }
@@ -77,7 +79,7 @@ void update_progressbar_on_seeked(GDBusProxy* self, gchar* sender_name, gchar* s
     gint64 position_microseconds;
     g_variant_get(parameters, "(x)", &position_microseconds);
     struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
-    progressbar_data->current_val = (gdouble)(position_microseconds / 1000000);
+    progressbar_data->current_val = (gdouble)(position_microseconds / 1000000.0);
     gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);
 
     g_print("Seeked signal handled. New position is %f seconds. \n", progressbar_data->current_val);
@@ -99,12 +101,12 @@ void free_progressbar_data(gpointer data)
     g_print("progressbar_data has been freed.\n");
 }
 
+//this function only updates the internal values, it does not seek to the position
 gboolean on_progressbar_value_changed(GtkRange* range, GtkScrollType scroll, gdouble value, gpointer user_data)
 {
     struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
     if (progressbar_data->is_dragging)
     {
-        seek_to_position(progressbar_data->proxy, value);
         progressbar_data->current_val = value;
         gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);
         g_print("Seeked to position: %f seconds\n", value);
