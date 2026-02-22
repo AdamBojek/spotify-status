@@ -19,5 +19,7 @@ GDBusProxy* connect_to_dbus();
 char* get_track_metadata(GDBusProxy* proxy);
 gboolean send_dbus_message(GDBusProxy* proxy, const char* method);
 char* get_playback_status(GDBusProxy* proxy);
+void seek_to_position(GDBusProxy* proxy, gdouble position_seconds);
+char* get_track_id(GDBusProxy* proxy);
 
 #endif

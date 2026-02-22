@@ -4,6 +4,40 @@
 #include "glibconfig.h"
 #include <stdio.h>
 
+void seek_to_position(GDBusProxy* proxy, gdouble position_seconds)
+{
+    //we use method SetPosition which takes arguments: "o" - TrackId, "x" - Position
+    //first, get TrackId
+    char* track_id = get_track_id(proxy);
+    GError* error = NULL;
+    GVariant* result = g_dbus_proxy_call_sync(proxy, "SetPosition", g_variant_new("(ox)", track_id, position_seconds * 1000000), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+    if (error)
+    {
+        g_printerr("Error seeking to position: %s\n", error->message);
+        g_error_free(error);
+    }
+    if (result != NULL) g_variant_unref(result);
+    if (track_id != NULL) g_free(track_id);
+}
+
+char* get_track_id(GDBusProxy* proxy)
+{
+    GVariant* metadata = g_dbus_proxy_get_cached_property(proxy, "Metadata");
+    if (metadata == NULL) return NULL;
+    GVariant* track_id_variant = g_variant_lookup_value(metadata, "mpris:trackid", G_VARIANT_TYPE_OBJECT_PATH);
+    if (track_id_variant == NULL)
+    {
+        g_variant_unref(metadata);
+        return NULL;
+    }
+    else 
+    {
+        const char* track_id = g_variant_get_string(track_id_variant, NULL);
+        g_variant_unref(metadata);
+        g_variant_unref(track_id_variant);
+        return g_strdup(track_id);
+    }
+}
 //voodoo magic
 gdouble get_current_position(GDBusProxy* proxy)
 {
@@ -101,8 +135,8 @@ char* get_playback_status(GDBusProxy* proxy)
 
 char* get_track_metadata(GDBusProxy* proxy)
 {
-    const char* title;
-    const char* artist;
+    const char* title; //title does not need to be freed, it's just a pointer to the string in the variant
+    char* artist; //artist needs to be freed, because we dupe it
     GVariant* metadata = g_dbus_proxy_get_cached_property(proxy, "Metadata");
     if (metadata == NULL)
     {

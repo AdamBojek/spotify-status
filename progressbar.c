@@ -3,6 +3,20 @@
 #include "gtk/gtk.h"
 #include "mpris.h"
 
+gboolean switch_dragging_state(GtkScale* scale, GdkEventButton* event, gpointer user_data)
+{
+    struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
+    if (event->type == GDK_BUTTON_PRESS)
+    {
+        progressbar_data->is_dragging = TRUE;
+    }
+    else if (event->type == GDK_BUTTON_RELEASE)
+    {
+        progressbar_data->is_dragging = FALSE;
+    }
+    return FALSE;
+}
+
 struct ProgressbarData* create_progressbar(GDBusProxy* proxy)
 {
     struct ProgressbarData* progressbar_data = g_malloc(sizeof(struct ProgressbarData));
@@ -14,6 +28,7 @@ struct ProgressbarData* create_progressbar(GDBusProxy* proxy)
     progressbar_data->adjustment = gtk_adjustment_new(progressbar_data->current_val, progressbar_data->min_val, progressbar_data->max_val, 1, 1, 1);
     progressbar_data->progressbar = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, progressbar_data->adjustment);
     progressbar_data->is_playing = (status && !strcmp(status, "Playing"));
+    progressbar_data->is_dragging = FALSE;
     //cosmetic changes so it looks decent
     gtk_scale_set_draw_value(GTK_SCALE(progressbar_data->progressbar), FALSE);
     gtk_widget_set_hexpand(progressbar_data->progressbar, TRUE);
@@ -23,6 +38,11 @@ struct ProgressbarData* create_progressbar(GDBusProxy* proxy)
     g_print("Current position: %f\n", progressbar_data->current_val);
     //add callback function to increment progressbar value (every 100ms)
     progressbar_data->timer_id = g_timeout_add(100, G_SOURCE_FUNC(increment_progressbar_value), progressbar_data);
+    //add callback function to handle seeking
+    g_signal_connect(GTK_RANGE(progressbar_data->progressbar), "change-value", G_CALLBACK(on_progressbar_value_changed), progressbar_data);
+    //add callback function to switch dragging state, used to prevent the timer from incrementing the value while the user is dragging the slider
+    g_signal_connect(GTK_WIDGET(progressbar_data->progressbar), "button-press-event", G_CALLBACK(switch_dragging_state), progressbar_data);
+    g_signal_connect(GTK_WIDGET(progressbar_data->progressbar), "button-release-event", G_CALLBACK(switch_dragging_state), progressbar_data);
     g_free(status);
     return progressbar_data;
 }
@@ -31,7 +51,7 @@ struct ProgressbarData* create_progressbar(GDBusProxy* proxy)
 gboolean increment_progressbar_value(gpointer user_data)
 {
     struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
-    if (progressbar_data->is_playing && progressbar_data->current_val < progressbar_data->max_val)
+    if (!progressbar_data->is_dragging && progressbar_data->is_playing && progressbar_data->current_val < progressbar_data->max_val)
     {
         progressbar_data->current_val += 0.1;
         gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);
@@ -77,4 +97,17 @@ void free_progressbar_data(gpointer data)
 
     g_free(progressbar_data);
     g_print("progressbar_data has been freed.\n");
+}
+
+gboolean on_progressbar_value_changed(GtkRange* range, GtkScrollType scroll, gdouble value, gpointer user_data)
+{
+    struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
+    if (progressbar_data->is_dragging)
+    {
+        seek_to_position(progressbar_data->proxy, value);
+        progressbar_data->current_val = value;
+        gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);
+        g_print("Seeked to position: %f seconds\n", value);
+    }
+    return FALSE;
 }
