@@ -109,7 +109,7 @@ gboolean on_progressbar_value_changed(GtkRange* range, GtkScrollType scroll, gdo
     {
         progressbar_data->current_val = value;
         gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);
-        g_print("Seeked to position: %f seconds\n", value);
+        g_print("Updated current value to: %f seconds\n", value);
     }
     return FALSE;
 }
