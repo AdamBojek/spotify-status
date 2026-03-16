@@ -1,2 +1,2 @@
 # spotify-status
-Simple GTK program that displays a system tray icon to display a user interface to control spotify, eg. pause/resume the song, skip to the next one.
+Simple GTK App that displays a spotify widget, which displays the current track, artist, and a progress bar. There are buttons that allow the user to pause the track or skip to the next one. 
