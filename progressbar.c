@@ -13,7 +13,7 @@ gboolean switch_dragging_state(GtkScale* scale, GdkEventButton* event, gpointer 
     else if (event->type == GDK_BUTTON_RELEASE)
     {
         progressbar_data->is_dragging = FALSE;
-        //only call seek_to_position when the button is released to avoid jittering
+        //only call seek_to_position when the button is released to avoid jittering and lag
         seek_to_position(progressbar_data->proxy, progressbar_data->current_val);
     }
     return FALSE;
@@ -62,6 +62,7 @@ gboolean increment_progressbar_value(gpointer user_data)
     return G_SOURCE_CONTINUE; //same as return 1;
 }
 
+//resets and updates the progress bar
 void update_progressbar_on_track_changed(struct ProgressbarData* data)
 {
     data->current_val = 0;
@@ -73,11 +74,13 @@ void update_progressbar_on_track_changed(struct ProgressbarData* data)
     g_print("Track changed. New length: %f s\n", data->max_val);
 }
 
+//handles Seeked signal from spotify
 void update_progressbar_on_seeked(GDBusProxy* self, gchar* sender_name, gchar* signal_name, GVariant* parameters, gpointer user_data)
 {
     //first, get the track position
     gint64 position_microseconds;
     g_variant_get(parameters, "(x)", &position_microseconds);
+    //then change internal data
     struct ProgressbarData* progressbar_data = (struct ProgressbarData*)user_data;
     progressbar_data->current_val = (gdouble)(position_microseconds / 1000000.0);
     gtk_adjustment_set_value(progressbar_data->adjustment, progressbar_data->current_val);

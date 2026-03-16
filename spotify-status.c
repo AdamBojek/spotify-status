@@ -80,6 +80,7 @@ static void update_label(GDBusProxy* proxy, GtkWidget* label)
 {
   char* metadata = get_track_metadata(proxy);
   gtk_label_set_text(GTK_LABEL(label), metadata);
+  gtk_window_resize(GTK_WINDOW(window_instance), 1, 1);
   g_free(metadata);
 }
 
